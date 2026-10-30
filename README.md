@@ -1,134 +1,184 @@
 # 🚀 Sales, Finance & Supply Chain Analytics (SQL)
 
 ## 📌 Project Overview
-This repository contains an **end-to-end SQL analytics project** built for a **simulated (imaginary) global electronics manufacturer, AtliQ Hardware**.  
-The project demonstrates how **advanced SQL** can be used to deliver **business-ready insights** across **Sales, Finance (P&L), and Supply Chain** functions.
+An end-to-end **MySQL analytics project** on **AtliQ Hardware**, a fictional global
+electronics manufacturer. It uses SQL to answer business questions across
+**Sales, Finance (P&L) and Supply Chain**, with a focus on reliable reporting,
+forecast accuracy and query performance.
 
-> ⚠️ **Note:** AtliQ Hardware is a fictional company created solely for learning and portfolio demonstration purposes.
+> ⚠️ **Note:** AtliQ Hardware is a fictional company. The dataset and business
+> questions come from the **Codebasics SQL for Data Analysts** course. I wrote and
+> ran the queries, applied and measured the performance optimization, ran the
+> forecast-accuracy analysis below, and documented the results as a business case.
+> Because the data is fictional, there is no real business impact.
 
-The focus of this project goes beyond writing queries:
-- Solving real-world business problems
-- Designing scalable data models
-- Automating analytics workflows
-- Optimizing query performance
-- Translating data into actionable insights
+---
+
+## ⭐ Highlights
+- **Cut report query time 86% (3.00 s → 0.41 s)** by replacing a row-by-row
+  fiscal-year function with a stored `fiscal_year` column, with an identical result
+  ($1,664.64M gross sales, FY2021).
+- **Analyzed forecast accuracy for 209 customers** using CTEs and window
+  functions: none reached 48% in FY2021, and 60 customers declined year over year,
+  exposing a systemic demand-planning gap.
+- **Built reusable reporting** with views, stored procedures for top-N markets and
+  customers, and a user-defined function for fiscal-year logic.
 
 ---
 
 ## 🏢 Business Context
-AtliQ Hardware (imaginary company) operates across:
-- **3 product divisions**  
-  - Peripherals & Accessories (P&A)  
-  - PCs (Laptops & Desktops)  
-  - Networking & Storage (N&S)
-- **300+ unique SKUs**
-- **15+ countries** grouped into **4 regions** (APAC, EU, North America, LATAM)
-- Multiple sales channels: Direct, Brick & Mortar, and E-commerce
-
-Due to this scale, the business required a centralized analytics solution to support data-driven decision-making.
-
----
+AtliQ Hardware (fictional) operates across:
+- **3 product divisions:** Peripherals & Accessories (P&A), PCs, Networking & Storage (N&S)
+- **300+ SKUs**
+- **15+ countries** in **4 regions** (APAC, EU, North America, LATAM)
+- **Sales channels:** Direct, Brick & Mortar, E-commerce
 
 ## 🎯 Problem Statement
-Key challenges addressed:
-1. No **single source of truth** for Sales, Finance, and Supply Chain analytics  
-2. Manual and slow P&L and sales reporting  
-3. Limited visibility into:
-   - Customer- and market-level profitability
-   - Revenue concentration risk
-   - Discount effectiveness  
-4. No standardized **forecast accuracy monitoring**  
-5. Performance bottlenecks in complex analytical SQL queries  
+1. No **single source of truth** for Sales, Finance and Supply Chain reporting
+2. Manual, slow P&L and sales reporting
+3. Limited visibility into customer- and market-level profitability and revenue concentration
+4. No standard **forecast accuracy** monitoring
+5. Slow analytical queries
 
 ---
 
 ## 🧠 Solution Approach
 
-### 1️⃣ Data Modeling
-A **star schema** optimized for analytics was designed.
+### 1️⃣ Data Model
+I worked with a **star schema** built for analytics:
 
-**Fact Tables**
-- `fact_sales_monthly`
-- `fact_forecast_monthly`
-- `fact_pricing`
+| Fact tables | Dimension tables |
+|---|---|
+| `fact_sales_monthly`, `fact_forecast_monthly`, `fact_gross_price`, `fact_pricing` | `dim_customer`, `dim_product`, `dim_date` |
 
-**Dimension Tables**
-- `dim_customer`
-- `dim_product`
-- `dim_date`
-
-This structure enables efficient joins, aggregations, and time-series analysis.
+### 2️⃣ Analytics Layer
+- **Views** for reusable business logic (e.g., net sales)
+- **Stored procedures** for parameterized top-N reports
+- **A user-defined function** (`get_fiscal_year`) for fiscal-year logic
+- **CTEs and window functions** for contribution and forecast-accuracy analysis
 
 ---
 
-### 2️⃣ Analytics & SQL Implementation
-The analytics layer uses:
-- **Views** for reusable business logic  
-- **Stored Procedures** for parameterized reporting  
-- **User-Defined Functions (UDFs)** for fiscal calculations  
-- **Triggers** for automated data consistency  
+## ⏱️ Performance Optimization (measured)
 
-**Analytics Coverage**
-- Finance & P&L reporting
-- Sales & market performance
-- Supply chain forecast accuracy
-- Revenue contribution & concentration analysis
+**Problem:** the original reports filtered on `get_fiscal_year(s.date) = 2021`. That
+runs the function on every row of `fact_sales_monthly` and stops MySQL from using
+an index.
+
+**Fix:** store `fiscal_year` as a column in the fact tables and filter on it directly.
+
+**Before**
+```sql
+SELECT ROUND(SUM(s.sold_quantity * g.gross_price)/1000000, 2) AS gross_sales_mln
+FROM fact_sales_monthly s
+JOIN fact_gross_price g
+  ON g.product_code = s.product_code
+ AND g.fiscal_year = get_fiscal_year(s.date)
+WHERE get_fiscal_year(s.date) = 2021;
+```
+
+**After**
+```sql
+SELECT ROUND(SUM(s.sold_quantity * g.gross_price)/1000000, 2) AS gross_sales_mln
+FROM fact_sales_monthly s
+JOIN fact_gross_price g
+  ON g.product_code = s.product_code
+ AND g.fiscal_year = s.fiscal_year
+WHERE s.fiscal_year = 2021;
+```
+
+**Result** (MySQL Workbench duration; each query run 4 times, first warm-up run excluded):
+
+| Run | Before (function) | After (stored column) |
+|---|---|---|
+| 2 | 3.015 s | 0.406 s |
+| 3 | 2.969 s | 0.406 s |
+| 4 | 3.015 s | 0.422 s |
+| **Average** | **3.00 s** | **0.41 s** |
+
+**86% faster (about 7×)**, with an identical result: **$1,664.64M** gross sales in FY2021.
+
+<!-- Add your two Workbench screenshots here, e.g. docs/images/before.png and docs/images/after.png -->
 
 ---
 
-### 3️⃣ Performance Optimization
-Key optimizations implemented:
-- Replaced function-based filtering with a **date dimension**
-- Embedded `fiscal_year` into fact tables
-- Optimized joins and aggregations
-- Refactored complex queries for readability
+## 📦 Supply Chain: Forecast Accuracy (FY2021)
 
-**Result:**  
-⏱️ Query execution time improved by **~35–40%**
+Forecast accuracy per customer = 100% − absolute forecast error %
+(set to 0% when the error is above 100%).
+
+| Finding | Result |
+|---|---|
+| Customers analyzed | **209** |
+| Customers below 80% accuracy | **209 of 209** |
+| Customers below 50% accuracy | **209 of 209** |
+| Accuracy range | **0% – 47.8%** |
+| Average accuracy, FY2020 → FY2021 | **27.6% → 36.9%** |
+| Customers whose accuracy declined vs. FY2020 | **60 of 209** |
+| Over-forecast vs. under-forecast | **109 vs. 100** |
+
+**What it means:** average accuracy improved, but no customer reached even 50%,
+and errors were split almost evenly between over-forecasting (excess stock) and
+under-forecasting (stockouts). This points to a **systemic forecasting-process
+gap**, not a few problem accounts.
+
+**What a demand planner would do:** start with the 60 declining customers, ranked
+by sales volume; review their forecast inputs with the sales team; adjust safety
+stock for their products; and track accuracy monthly.
+
+```sql
+-- Forecast accuracy spread, FY2021
+WITH forecast_err_table AS (
+  SELECT s.customer_code,
+         SUM(s.forecast_quantity - s.sold_quantity) AS net_err,
+         ROUND(SUM(ABS(s.forecast_quantity - s.sold_quantity)) * 100
+               / SUM(s.forecast_quantity), 2) AS abs_error_pct
+  FROM fact_act_est s
+  WHERE s.fiscal_year = 2021
+  GROUP BY s.customer_code
+), acc AS (
+  SELECT *, IF(abs_error_pct > 100, 0, 100 - abs_error_pct) AS forecast_accuracy
+  FROM forecast_err_table
+)
+SELECT ROUND(MIN(forecast_accuracy),1) AS min_acc,
+       ROUND(AVG(forecast_accuracy),1) AS avg_acc,
+       ROUND(MAX(forecast_accuracy),1) AS max_acc,
+       SUM(forecast_accuracy < 50)     AS below_50,
+       SUM(net_err > 0)                AS over_forecast,
+       SUM(net_err < 0)                AS under_forecast
+FROM acc;
+```
+
+```sql
+-- Year-over-year change, FY2020 vs FY2021
+WITH acc AS (
+  SELECT s.customer_code, s.fiscal_year,
+         IF(SUM(ABS(s.forecast_quantity - s.sold_quantity))*100/SUM(s.forecast_quantity) > 100, 0,
+            100 - SUM(ABS(s.forecast_quantity - s.sold_quantity))*100/SUM(s.forecast_quantity)) AS fa
+  FROM fact_act_est s
+  WHERE s.fiscal_year IN (2020, 2021)
+  GROUP BY s.customer_code, s.fiscal_year
+)
+SELECT ROUND(AVG(CASE WHEN a.fiscal_year = 2020 THEN a.fa END),1) AS avg_fa_2020,
+       ROUND(AVG(CASE WHEN a.fiscal_year = 2021 THEN a.fa END),1) AS avg_fa_2021,
+       COUNT(DISTINCT CASE WHEN a.fiscal_year = 2021 AND a.fa < b.fa THEN a.customer_code END) AS customers_dropped,
+       COUNT(DISTINCT CASE WHEN a.fiscal_year = 2021 AND b.fa IS NOT NULL THEN a.customer_code END) AS customers_in_both_years
+FROM acc a
+LEFT JOIN acc b ON a.customer_code = b.customer_code AND b.fiscal_year = 2020;
+```
 
 ---
 
-## 📊 Key Insights
-- Top 2 customers contributed **~40% of total net sales**, indicating concentration risk  
-- Certain **EU markets showed higher Gross Margin % than APAC**  
-- Higher discounts did **not always increase revenue**  
-- Forecast accuracy dropped below **80% for select customers**, highlighting demand planning gaps  
-
----
-
-## 🚀 Business Impact
-- Established a **single source of truth** for analytics  
-- Reduced manual reporting effort by **~40%**  
-- Improved pricing, discount, and margin visibility  
-- Enabled proactive forecast accuracy monitoring  
-- Delivered scalable, business-aligned SQL solutions  
-
----
-
-## 🛠️ Skills & Concepts Demonstrated
-- Advanced SQL (CTEs, Window Functions)
-- Stored Procedures, Triggers, UDFs
-- Star schema data modeling
-- Financial analytics (P&L, margins)
-- Sales & market analysis
-- Supply chain forecasting analytics
-- Query performance optimization
-- Business-oriented problem solving
+## 📊 Other Key Insights
+- The top 2 customers contributed **[X]%** of FY2021 net sales, a revenue concentration risk
+- Some **EU markets showed higher gross margin % than APAC**
+- **Higher discounts did not always increase revenue**
 
 ---
 
 ## 🧪 Sample SQL Queries & Outputs
 
-Below are **representative SQL queries** from each domain.  
-(Full SQL scripts are available in the repository folders.)
-
----
-
-### 💰 Finance Analytics – Monthly Gross Sales
-
-**Business Question:**  
-How much revenue does a key customer generate month over month?
-
+### 💰 Finance: Monthly Gross Sales for a Key Customer
 ```sql
 SELECT 
     s.date,
@@ -141,31 +191,28 @@ WHERE s.customer_code = 90002002
 GROUP BY s.date
 ORDER BY s.date;
 ```
-📊 Output: <img width="602" height="640" alt="Screenshot 2026-01-16 122327" src="https://github.com/user-attachments/assets/44e52717-6019-4637-bb72-4d81c4d143b6" />
+📊 Output: <img width="602" height="640" alt="Monthly gross sales output" src="https://github.com/user-attachments/assets/44e52717-6019-4637-bb72-4d81c4d143b6" />
 
-2. Net Sales View
+### 💰 Finance: Net Sales View
 ```sql
- CREATE VIEW net_sales AS
+CREATE VIEW net_sales AS
 SELECT 
     *, 
-    net_invoice_sales*(1-post_invoice_discount_pct) AS net_sales
+    net_invoice_sales * (1 - post_invoice_discount_pct) AS net_sales
 FROM sales_postinv_discount;
 ```
-📊 Output: <img width="1540" height="342" alt="Screenshot 2026-01-16 123602" src="https://github.com/user-attachments/assets/960a75b4-c517-4de1-82c5-15fe269a6f2c" />
-            <img width="1556" height="339" alt="Screenshot 2026-01-16 123618" src="https://github.com/user-attachments/assets/1486df6c-f094-4cf0-8ef9-91b65792ac43" />
-            <img width="154" height="303" alt="Screenshot 2026-01-16 123630" src="https://github.com/user-attachments/assets/3b717bf3-af3f-4a03-b1ca-4721eb0a45f2" />
+📊 Output: <img width="1540" height="342" alt="Net sales view output" src="https://github.com/user-attachments/assets/960a75b4-c517-4de1-82c5-15fe269a6f2c" />
 
-
-3. Stored Procedure – Top N Markets by Net Sales
+### 📈 Sales: Top N Markets by Net Sales (Stored Procedure)
 ```sql
-   CREATE PROCEDURE get_top_n_markets_by_net_sales(
+CREATE PROCEDURE get_top_n_markets_by_net_sales(
     IN in_fiscal_year INT,
     IN in_top_n INT
 )
 BEGIN
     SELECT 
         market, 
-        ROUND(SUM(net_sales)/1000000,2) AS net_sales_mln
+        ROUND(SUM(net_sales)/1000000, 2) AS net_sales_mln
     FROM net_sales
     WHERE fiscal_year = in_fiscal_year
     GROUP BY market
@@ -174,14 +221,13 @@ BEGIN
 END;
 ```
 ```sql
-call gdb0041.get_top_n_products_by_net_sales(2021, 5);
+CALL gdb0041.get_top_n_markets_by_net_sales(2021, 5);
 ```
-📊 Output: <img width="514" height="167" alt="image" src="https://github.com/user-attachments/assets/feb55a25-ddfc-43da-91a1-f4ce60910fd5" />
+📊 Output: <img width="514" height="167" alt="Top N markets output" src="https://github.com/user-attachments/assets/feb55a25-ddfc-43da-91a1-f4ce60910fd5" />
 
-SALES ANALYTICS
-4. Customer Contribution % (Window Function) 
+### 📈 Sales: Customer Contribution % (CTE + Window Function)
 ```sql
-      WITH cte1 AS (
+WITH cte1 AS (
     SELECT  
         customer,
         ROUND(SUM(net_sales / 1000000), 2) AS net_sales_mln
@@ -196,11 +242,11 @@ SELECT *,
 FROM cte1
 ORDER BY net_sales_mln DESC;
 ```
-📊 Output: <img width="418" height="314" alt="image" src="https://github.com/user-attachments/assets/a80d1368-a6c6-4703-8329-e86ac0a482a2" />
+📊 Output: <img width="418" height="314" alt="Customer contribution output" src="https://github.com/user-attachments/assets/a80d1368-a6c6-4703-8329-e86ac0a482a2" />
 
-5. Top Customers by Market (Stored Proc)
+### 📈 Sales: Top N Customers by Market (Stored Procedure)
 ```sql
-      CREATE PROCEDURE get_top_n_customers_by_net_sales(
+CREATE PROCEDURE get_top_n_customers_by_net_sales(
     IN in_market VARCHAR(45),
     IN in_fiscal_year INT,
     IN in_top_n INT
@@ -208,7 +254,7 @@ ORDER BY net_sales_mln DESC;
 BEGIN
     SELECT 
         customer, 
-        ROUND(SUM(net_sales)/1000000,2) AS net_sales_mln
+        ROUND(SUM(net_sales)/1000000, 2) AS net_sales_mln
     FROM net_sales s
     JOIN dim_customer c
         ON s.customer_code = c.customer_code
@@ -220,51 +266,24 @@ BEGIN
 END;
 ```
 ```sql
-call gdb0041.get_top_n_customers_by_net_sales('USA', 2021, 5);
+CALL gdb0041.get_top_n_customers_by_net_sales('USA', 2021, 5);
 ```
-📊 Output: <img width="334" height="167" alt="image" src="https://github.com/user-attachments/assets/b685ecec-8b90-4220-a8a8-de24abd01b4c" />
+📊 Output: <img width="334" height="167" alt="Top N customers output" src="https://github.com/user-attachments/assets/b685ecec-8b90-4220-a8a8-de24abd01b4c" />
 
-SUPPLY CHAIN ANALYTICS
+---
 
-6. Forecast Accuracy (CTE Version)
-```sql
-     WITH forecast_err_table AS (
-    SELECT
-        s.customer_code,
-        c.customer,
-        SUM(s.sold_quantity) AS total_sold_qty,
-        SUM(s.forecast_quantity) AS total_forecast_qty,
-        ROUND(
-            SUM(ABS(s.forecast_quantity - s.sold_quantity)) * 100 
-            / SUM(s.forecast_quantity), 2
-        ) AS abs_error_pct
-    FROM fact_act_est s
-    JOIN dim_customer c
-        ON s.customer_code = c.customer_code
-    WHERE s.fiscal_year = 2021
-    GROUP BY s.customer_code
-)
-SELECT *,
-       IF(abs_error_pct > 100, 0, 100 - abs_error_pct) AS forecast_accuracy
-FROM forecast_err_table
-ORDER BY forecast_accuracy DESC
-limit 5;
-```
-📊 Output: <img width="774" height="206" alt="image" src="https://github.com/user-attachments/assets/31b64f03-a626-4664-9c94-2c67d4afa243" />
+## 🛠️ Skills Demonstrated
+- SQL (MySQL): joins, aggregations, CTEs, window functions
+- Views, stored procedures, user-defined functions
+- Star schema data models
+- Query performance optimization (measured before and after)
+- Financial analytics (P&L, net sales, contribution)
+- Supply chain forecast-accuracy analysis
+- Turning query results into business recommendations
 
-7. Performance Optimization
-Replaced repeated fiscal year function calls with a date dimension and later embedded fiscal_year directly into the fact table, reducing query execution time by 35–40%.
+## 📁 Repository Contents
+SQL scripts are in the `sql/` folder, organized by domain (finance, sales, supply chain, performance).
 
-8. ADVANCED ANALYTICS
+---
 
-```sql
-     SELECT 
-    *,
-    SUM(amount) OVER (PARTITION BY category ORDER BY date) AS expenses_till_date
-FROM random_tables.expenses
-limit 5;
-```
-output: <img width="557" height="186" alt="image" src="https://github.com/user-attachments/assets/d892e715-bda7-4b9e-82b4-a566f7e8682c" />
-
-
-
+<p align="center"><sub>Built by Saurabh Dighe · <a href="https://github.com/DigheSaurabh">GitHub</a> · <a href="https://www.linkedin.com/in/saurabh-dighe-9b84a637a/">LinkedIn</a></sub></p>
